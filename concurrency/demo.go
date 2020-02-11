@@ -21,9 +21,9 @@ type eqReceipt struct {
 }
 
 type rmResponse struct {
-	CaseId *string `json:"caseId"`
-	QuestionnaireId string `json:"questionnaireId"`
-	Unreceipt bool `json:"unreceipt"`
+	CaseId          *string `json:"caseId"`
+	QuestionnaireId string  `json:"questionnaireId"`
+	Unreceipt       bool    `json:"unreceipt"`
 }
 
 type rmPayload struct {
@@ -31,16 +31,16 @@ type rmPayload struct {
 }
 
 type rmEvent struct {
-	Type string `json:"type"`
-	Source string `json:"source"`
-	Channel string `json:"channel"`
-	DateTime string `json:"dateTime"`
-	TransactionId string `json:"transactionId"`
-	Payload rmPayload `json:"payload"`
+	Type          string    `json:"type"`
+	Source        string    `json:"source"`
+	Channel       string    `json:"channel"`
+	DateTime      string    `json:"dateTime"`
+	TransactionId string    `json:"transactionId"`
+	Payload       rmPayload `json:"payload"`
 }
 
 type rmMessage struct {
-	Event rmEvent `json:"event"`
+	Event   rmEvent   `json:"event"`
 	Payload rmPayload `json:"payload"`
 }
 
@@ -52,9 +52,9 @@ func main() {
 
 	publish("project", "eq-submission-topic", jsonMessageStr)
 
-	go pullMsgs("project", "rm-receipt-subscription" , &c)
+	go pullMsgs("project", "rm-receipt-subscription", &c)
 	go convertAndSend(&c)
-	
+
 	// Infinite loop
 	for {
 	}
@@ -133,10 +133,10 @@ func sendRabbitMessage(message *rmMessage) {
 	failOnError(err, "Failed to marshall data")
 
 	err = ch.Publish(
-		"",         // default exchange
+		"",            // default exchange
 		"goTestQueue", // routing key (the queue)
-		false, // mandatory
-		false, // immediate
+		false,         // mandatory
+		false,         // immediate
 		amqp.Publishing{
 			ContentType: "application/json",
 			Body:        byteMessage,
@@ -153,19 +153,28 @@ func failOnError(err error, msg string) {
 }
 
 func convertEqReceiptToRmMessage(eqReceipt *eqReceipt) *rmMessage {
-	messageToSendToRm := rmMessage{}
-	messageToSendToRm.Event = rmEvent{}
-	messageToSendToRm.Event.Type = "RESPONSE_RECEIVED"
-	messageToSendToRm.Event.Source = "RECEIPT_SERVICE"
-	messageToSendToRm.Event.Channel = "EQ"
-	messageToSendToRm.Event.DateTime = eqReceipt.TimeCreated
-	messageToSendToRm.Event.TransactionId = eqReceipt.Metadata.TransactionId
-	messageToSendToRm.Payload = rmPayload{}
-	messageToSendToRm.Payload.Response = rmResponse{}
-	messageToSendToRm.Payload.Response.CaseId = nil
-	messageToSendToRm.Payload.Response.QuestionnaireId = eqReceipt.Metadata.QuestionnaireId
-	messageToSendToRm.Payload.Response.Unreceipt = false
-	return &messageToSendToRm;
+	if eqReceipt == nil {
+		return nil
+	}
+
+	messageToSendToRm := &rmMessage{
+		Type:    "RESPONSE_RECEIVED",
+		Source:  "RECEIPT_SERVICE",
+		Channel: "EQ",
+	}
+
+	messageToSendToRm.Event = &rmEvent{
+		DateTime:      eqReceipt.TimeCreated,
+		TransactionId: eqReceipt.Metadata.TransactionId,
+	}
+
+	messageToSendToRm.Payload = rmPayload{
+		Response: rmResponse{
+			QuestionnaireId: eqReceipt.Metadata.QuestionnaireId,
+		},
+	}
+
+	return &messageToSendToRm
 }
 
 func convertAndSend(c *chan eqReceipt) {
