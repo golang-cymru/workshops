@@ -1,0 +1,19 @@
+version: "3.4"
+services:
+  rabbitmq:
+    container_name: rabbitmq
+    image: rabbitmq:3.8.2-management
+    ports:
+      - "5369:4369"
+      - "45672:25672"
+      - "6671-6672:5671-5672"
+      - "16671-16672:15671-15672"
+      - "15692:15692"
+    volumes:
+      - ./rabbitmq/rabbitmq.config:/etc/rabbitmq/rabbitmq.config:ro
+
+  pubsub-emulator:
+    container_name: pubsub-emulator
+    image: eu.gcr.io/census-rm-ci/rm/gcloud-pubsub-emulator:latest
+    ports:
+      - "8538:8538"
