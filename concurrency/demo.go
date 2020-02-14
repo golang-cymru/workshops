@@ -21,9 +21,9 @@ type eqReceipt struct {
 }
 
 type rmResponse struct {
-	CaseId          *string `json:"caseId"`
-	QuestionnaireId string  `json:"questionnaireId"`
-	Unreceipt       bool    `json:"unreceipt"`
+	CaseId          string `json:"caseId"`
+	QuestionnaireId string `json:"questionnaireId"`
+	Unreceipt       bool   `json:"unreceipt"`
 }
 
 type rmPayload struct {
@@ -45,42 +45,13 @@ type rmMessage struct {
 }
 
 func main() {
-	jsonMessageStr := `{"timeCreated": "2008-08-24T00:00:00Z",
-	"metadata": {"tx_id": "abc123xxx", "questionnaire_id": "01213213213"}}`
-
 	c := make(chan eqReceipt)
-
-	publish("project", "eq-submission-topic", jsonMessageStr)
 
 	go pullMsgs("project", "rm-receipt-subscription", &c)
 	go convertAndSend(&c)
 
 	// Infinite loop
-	for {
-	}
-}
-
-func publish(projectID, topicID, msg string) error {
-	ctx := context.Background()
-	client, err := pubsub.NewClient(ctx, projectID)
-	if err != nil {
-		fmt.Printf("pubsub.NewClient: %v\n", err)
-		return fmt.Errorf("pubsub.NewClient: %v", err)
-	}
-
-	t := client.Topic(topicID)
-	result := t.Publish(ctx, &pubsub.Message{
-		Data: []byte(msg),
-	})
-	// Block until the result is returned and a server-generated
-	// ID is returned for the published message.
-	id, err := result.Get(ctx)
-	if err != nil {
-		fmt.Printf("get: %v\n", err)
-		return fmt.Errorf("get: %v", err)
-	}
-	fmt.Printf("Published a message; msg ID: %v\n", id)
-	return nil
+	select {}
 }
 
 func pullMsgs(projectID, subID string, c *chan eqReceipt) {
@@ -158,14 +129,16 @@ func convertEqReceiptToRmMessage(eqReceipt *eqReceipt) *rmMessage {
 	}
 
 	messageToSendToRm := &rmMessage{
-		Type:    "RESPONSE_RECEIVED",
-		Source:  "RECEIPT_SERVICE",
-		Channel: "EQ",
-	}
-
-	messageToSendToRm.Event = &rmEvent{
-		DateTime:      eqReceipt.TimeCreated,
-		TransactionId: eqReceipt.Metadata.TransactionId,
+		rmEvent{Type: "RESPONSE_RECEIVED",
+			Source:        "RECEIPT_SERVICE",
+			Channel:       "EQ",
+			DateTime:      eqReceipt.TimeCreated,
+			TransactionId: eqReceipt.Metadata.TransactionId},
+		rmPayload{
+			rmResponse{
+				CaseId:          "",
+				QuestionnaireId: "",
+				Unreceipt:       false}},
 	}
 
 	messageToSendToRm.Payload = rmPayload{
@@ -174,7 +147,7 @@ func convertEqReceiptToRmMessage(eqReceipt *eqReceipt) *rmMessage {
 		},
 	}
 
-	return &messageToSendToRm
+	return messageToSendToRm
 }
 
 func convertAndSend(c *chan eqReceipt) {
