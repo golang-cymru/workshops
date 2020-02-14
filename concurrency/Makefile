@@ -1,5 +1,6 @@
 up:
 	docker-compose -f dev.yml up -d;
+	./setup_pubsub.sh
 	
 down:
 	docker-compose -f dev.yml down
