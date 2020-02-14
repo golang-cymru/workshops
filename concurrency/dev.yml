@@ -11,6 +11,7 @@ services:
       - "15692:15692"
     volumes:
       - ./rabbitmq/rabbitmq.config:/etc/rabbitmq/rabbitmq.config:ro
+      - ./rabbitmq/definitions.json:/opt/definitions.json:ro
 
   pubsub-emulator:
     container_name: pubsub-emulator-census-pubsub
