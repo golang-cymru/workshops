@@ -3,16 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"sync"
+	"log"
 
 	"cloud.google.com/go/pubsub"
+	"github.com/pkg/errors"
 	"github.com/streadway/amqp"
 )
 
 type eqReceiptMetadata struct {
-	TransactionId   string `json:"tx_id"`
-	QuestionnaireId string `json:"questionnaire_id"`
+	TransactionID   string `json:"tx_id"`
+	QuestionnaireID string `json:"questionnaire_id"`
 }
 
 type eqReceipt struct {
@@ -21,9 +21,9 @@ type eqReceipt struct {
 }
 
 type rmResponse struct {
-	CaseId          string `json:"caseId"`
-	QuestionnaireId string `json:"questionnaireId"`
-	Unreceipt       bool   `json:"unreceipt"`
+	CaseID          *string `json:"caseId"` // Why a reference type?
+	QuestionnaireID string  `json:"questionnaireId"`
+	Unreceipt       bool    `json:"unreceipt"`
 }
 
 type rmPayload struct {
@@ -35,7 +35,7 @@ type rmEvent struct {
 	Source        string    `json:"source"`
 	Channel       string    `json:"channel"`
 	DateTime      string    `json:"dateTime"`
-	TransactionId string    `json:"transactionId"`
+	TransactionID string    `json:"transactionId"`
 	Payload       rmPayload `json:"payload"`
 }
 
@@ -48,46 +48,66 @@ func main() {
 	c := make(chan eqReceipt)
 
 	go pullMsgs("project", "rm-receipt-subscription", &c)
-	go convertAndSend(&c)
 
-	// Infinite loop
+	go func(c *chan eqReceipt) {
+		for {
+			eqReceiptReceived := <-*c
+			rmMessageToSend, err := convertEqReceiptToRmMessage(&eqReceiptReceived)
+			if err != nil {
+				log.Println(errors.Wrap(err, "failed to convert receipt to message"))
+			}
+			sendRabbitMessage(rmMessageToSend)
+		}
+	}(&c)
+
 	select {}
 }
 
 func pullMsgs(projectID, subID string, c *chan eqReceipt) {
-	fmt.Println("Launched PubSub message listener")
+	log.Println("Launched PubSub message listener")
 
 	ctx := context.Background()
 	client, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
-		fmt.Printf("pubsub.NewClient: %v\n", err)
+		log.Printf("pubsub.NewClient: %v\n", err)
 	}
 
 	// Consume message.
-	var mu sync.Mutex
-	received := 0
+
+	// // Received and mutex is used to auto-exit the go routine on number of iterations
+	// var mu sync.Mutex
+	// received := 0
+
 	sub := client.Subscription(subID)
-	cctx, cancel := context.WithCancel(ctx)
+
+	// Not using the cancel function here (which makes WithCancel a bit redundant!)
+	// Ideally the cancel would be deferred/delegated to a signal watcher to
+	// enable graceful shutdown that can kill the active go routines.
+	cctx, _ := context.WithCancel(ctx)
 	err = sub.Receive(cctx, func(ctx context.Context, msg *pubsub.Message) {
-		fmt.Printf("Got message: %q\n", string(msg.Data))
+		log.Printf("Got message: %q\n", string(msg.Data))
 
 		eqReceiptReceived := eqReceipt{}
 		json.Unmarshal(msg.Data, &eqReceiptReceived)
 
-		fmt.Printf("Got QID: %q\n", eqReceiptReceived.Metadata.QuestionnaireId)
+		log.Printf("Got QID: %q\n", eqReceiptReceived.Metadata.QuestionnaireID)
 
 		*c <- eqReceiptReceived
 
 		msg.Ack()
-		mu.Lock()
-		defer mu.Unlock()
-		received++
-		if received == -999 { // Never quit
-			cancel()
-		}
+
+		// // Only need to use the mutex if we're wanting to increment the exit
+		// // counter. The counter is used to set a maximum number of messages to
+		// // process before stopping the consumer.
+		// mu.Lock()
+		// defer mu.Unlock()
+		// received++
+		// if received == -999 { // Never quit
+		// 	cancel()
+		// }
 	})
 	if err != nil {
-		fmt.Printf("Receive: %v\n", err)
+		log.Printf("Receive: %v\n", err)
 	}
 }
 
@@ -114,48 +134,32 @@ func sendRabbitMessage(message *rmMessage) {
 		})
 	failOnError(err, "Failed to publish a message")
 
-	fmt.Printf(" [x] Sent %s", string(byteMessage))
+	log.Printf(" [x] Sent %s", string(byteMessage))
 }
 
 func failOnError(err error, msg string) {
 	if err != nil {
-		fmt.Printf("%s: %s", msg, err)
+		log.Fatalf("%s: %s", msg, err)
 	}
 }
 
-func convertEqReceiptToRmMessage(eqReceipt *eqReceipt) *rmMessage {
+func convertEqReceiptToRmMessage(eqReceipt *eqReceipt) (*rmMessage, error) {
 	if eqReceipt == nil {
-		return nil
+		return nil, errors.New("receipt has nil content")
 	}
 
-	messageToSendToRm := &rmMessage{
-		rmEvent{Type: "RESPONSE_RECEIVED",
+	return &rmMessage{
+		Event: rmEvent{
+			Type:          "RESPONSE_RECEIVED",
 			Source:        "RECEIPT_SERVICE",
 			Channel:       "EQ",
 			DateTime:      eqReceipt.TimeCreated,
-			TransactionId: eqReceipt.Metadata.TransactionId},
-		rmPayload{
-			rmResponse{
-				CaseId:          "",
-				QuestionnaireId: "",
-				Unreceipt:       false}},
-	}
-
-	messageToSendToRm.Payload = rmPayload{
-		Response: rmResponse{
-			QuestionnaireId: eqReceipt.Metadata.QuestionnaireId,
+			TransactionID: eqReceipt.Metadata.TransactionID,
 		},
-	}
-
-	return messageToSendToRm
-}
-
-func convertAndSend(c *chan eqReceipt) {
-	fmt.Println("Launched message converter/sender")
-
-	for {
-		eqReceiptReceived := <-*c
-		rmMessageToSend := convertEqReceiptToRmMessage(&eqReceiptReceived)
-		sendRabbitMessage(rmMessageToSend)
-	}
+		Payload: rmPayload{
+			Response: rmResponse{
+				QuestionnaireID: eqReceipt.Metadata.QuestionnaireID,
+			},
+		},
+	}, nil
 }
