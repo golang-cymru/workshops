@@ -45,15 +45,7 @@ type rmMessage struct {
 }
 
 func main() {
-	jsonMessageStr := `{"timeCreated": "2008-08-24T00:00:00Z",
-	"metadata": {"tx_id": "abc123xxx", "questionnaire_id": "01213213213"}}`
-
 	c := make(chan eqReceipt)
-
-	err := publish("project", "eq-submission-topic", jsonMessageStr)
-	if err != nil {
-		log.Fatal(errors.Wrap(err, "failed to publish"))
-	}
 
 	go pullMsgs("project", "rm-receipt-subscription", &c)
 
@@ -68,31 +60,7 @@ func main() {
 		}
 	}(&c)
 
-	// Wait
-	for {
-	}
-}
-
-func publish(projectID, topicID, msg string) error {
-	ctx := context.Background()
-	client, err := pubsub.NewClient(ctx, projectID)
-	if err != nil {
-		return errors.Wrap(err, "client creation failed")
-	}
-
-	t := client.Topic(topicID)
-	result := t.Publish(ctx, &pubsub.Message{
-		Data: []byte(msg),
-	})
-
-	// Block until the result is returned and a server-generated
-	// ID is returned for the published message.
-	id, err := result.Get(ctx)
-	if err != nil {
-		return err
-	}
-	log.Printf("Published a message; msg ID: %v\n", id)
-	return nil
+	select {}
 }
 
 func pullMsgs(projectID, subID string, c *chan eqReceipt) {
