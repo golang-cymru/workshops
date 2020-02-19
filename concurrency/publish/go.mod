@@ -1,4 +1,4 @@
-module github.com/golang-cymru/workshops/concurrency
+module github.com/golang-cymru/workshops/concurrency/publish
 
 go 1.13
 
