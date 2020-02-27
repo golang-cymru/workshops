@@ -21,11 +21,13 @@ func main() {
 	fmt.Println("waiting....")
 
 	go func() {
-		select {
-		case dl := <-cDLQ:
-			fmt.Println("deadletter: " + dl)
-		default:
-			fmt.Println("no messages")
+		for {
+			select {
+			case dl := <-cDLQ:
+				fmt.Println("deadletter: " + dl)
+			default:
+				fmt.Println("no messages")
+			}
 		}
 	}()
 

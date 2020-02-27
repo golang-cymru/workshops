@@ -26,14 +26,16 @@ func main() {
 	fmt.Println("waiting....")
 
 	go func() {
-		select {
-		case dl := <-cDLQ:
-			fmt.Println("deadletter: " + dl)
-		case <-signals:
-			fmt.Println("time to shutdown!")
-			return
-		default:
-			fmt.Println("no messages")
+		for {
+			select {
+			case dl := <-cDLQ:
+				fmt.Println("deadletter: " + dl)
+			case <-signals:
+				fmt.Println("time to shutdown!")
+				return
+			default:
+				fmt.Println("no messages")
+			}
 		}
 	}()
 
